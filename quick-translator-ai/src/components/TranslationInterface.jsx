@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Settings, Languages, ArrowRightLeft, Mic, Square, Type } from 'lucide-react';
+import AudioVisualizer from './AudioVisualizer';
 
 const TranslationInterface = () => {
   const [inputText, setInputText] = useState('');
@@ -9,17 +10,19 @@ const TranslationInterface = () => {
   const [targetLang, setTargetLang] = useState('English');
   const [showSettings, setShowSettings] = useState(false);
   const [copySuccess, setCopySuccess] = useState(false);
-  const [inputMode, setInputMode] = useState('text'); // 'text' or 'voice'
+  const [inputMode, setInputMode] = useState('text');
   const [isRecording, setIsRecording] = useState(false);
-  const [audioBlob, setAudioBlob] = useState(null);
+  const [audioStream, setAudioStream] = useState(null);
+  const [showEditableTranscription, setShowEditableTranscription] = useState(false);
 
   const mediaRecorder = useRef(null);
   const audioChunks = useRef([]);
 
   const [settings, setSettings] = useState({
     model: localStorage.getItem('model') || 'gpt-4o',
-    lowercase: localStorage.getItem('lowercase') === 'false' || false,
-    apiKey: localStorage.getItem('apiKey') || ''
+    lowercase: localStorage.getItem('lowercase') === 'true' || false,
+    apiKey: localStorage.getItem('apiKey') || '',
+    editTranscriptionBeforeTranslate: localStorage.getItem('editTranscriptionBeforeTranslate') === 'true' || false
   });
 
   const getAvailableLanguages = (isSource) => {
@@ -40,10 +43,18 @@ const TranslationInterface = () => {
     }
   }, [sourceLang, targetLang]);
 
-  // Recording functions
+  useEffect(() => {
+    return () => {
+      if (audioStream) {
+        audioStream.getTracks().forEach(track => track.stop());
+      }
+    };
+  }, [audioStream]);
+
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      setAudioStream(stream);
       mediaRecorder.current = new MediaRecorder(stream);
 
       mediaRecorder.current.ondataavailable = (event) => {
@@ -52,9 +63,9 @@ const TranslationInterface = () => {
 
       mediaRecorder.current.onstop = async () => {
         const audioBlob = new Blob(audioChunks.current, { type: 'audio/mp3' });
-        setAudioBlob(audioBlob);
         audioChunks.current = [];
         await processAudioWithWhisper(audioBlob);
+        setAudioStream(null);
       };
 
       mediaRecorder.current.start();
@@ -96,7 +107,12 @@ const TranslationInterface = () => {
 
       const data = await response.json();
       setInputText(data.text);
-      await handleTranslate(data.text);
+
+      if (settings.editTranscriptionBeforeTranslate) {
+        setShowEditableTranscription(true);
+      } else {
+        await handleTranslate(data.text);
+      }
     } catch (error) {
       console.error('Transcription error:', error);
     } finally {
@@ -107,7 +123,9 @@ const TranslationInterface = () => {
   const handleTranslate = async (textToTranslate = inputText) => {
     if (!textToTranslate.trim() || !settings.apiKey) return;
 
+    setShowEditableTranscription(false);
     setIsTranslating(true);
+
     try {
       const response = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
@@ -176,6 +194,7 @@ const TranslationInterface = () => {
     localStorage.setItem('model', newSettings.model);
     localStorage.setItem('lowercase', newSettings.lowercase);
     localStorage.setItem('apiKey', newSettings.apiKey);
+    localStorage.setItem('editTranscriptionBeforeTranslate', newSettings.editTranscriptionBeforeTranslate);
     setShowSettings(false);
   };
 
@@ -265,29 +284,43 @@ const TranslationInterface = () => {
 
             {/* Input area */}
             <div className="p-6 border-b border-gray-200">
-              {inputMode === 'text' ? (
-                  <textarea
-                      value={inputText}
-                      onChange={(e) => setInputText(e.target.value)}
-                      placeholder="Enter text to translate..."
-                      dir={isRTL ? 'rtl' : 'ltr'}
-                      className={`w-full h-48 resize-none bg-transparent placeholder-gray-400 focus:outline-none ${
-                          isRTL ? 'text-right' : 'text-left'
-                      } text-lg`}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' && !e.shiftKey) {
-                          e.preventDefault();
-                          handleTranslate();
-                        }
-                      }}
-                  />
+              {inputMode === 'text' || showEditableTranscription ? (
+                  <>
+                <textarea
+                    value={inputText}
+                    onChange={(e) => setInputText(e.target.value)}
+                    placeholder={showEditableTranscription ? "ערוך את הטקסט המתומלל כאן..." : "הכנס טקסט לתרגום..."}
+                    dir={isRTL ? 'rtl' : 'ltr'}
+                    className={`w-full h-48 resize-none bg-transparent placeholder-gray-400 focus:outline-none ${
+                        isRTL ? 'text-right' : 'text-left'
+                    } text-lg`}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        handleTranslate();
+                      }
+                    }}
+                />
+                    <div className="mt-4 flex flex-col items-center gap-2">
+                      <div className="text-sm text-gray-400">
+                        {inputText.length} characters
+                      </div>
+                      <button
+                          onClick={() => handleTranslate()}
+                          className="px-8 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all disabled:opacity-50 flex items-center gap-2 font-medium"
+                          disabled={isTranslating || !inputText.trim() || !settings.apiKey}
+                      >
+                        {isTranslating ? 'Translating...' : showEditableTranscription ? 'תרגם טקסט מתוקן' : 'Translate'}
+                      </button>
+                    </div>
+                  </>
               ) : (
-                  <div className="flex flex-col items-center justify-center h-48">
+                  <div className="flex flex-col items-center justify-center space-y-8">
                     <button
                         onClick={isRecording ? stopRecording : startRecording}
                         className={`p-6 rounded-full ${
                             isRecording ? 'bg-red-500 hover:bg-red-600' : 'bg-blue-600 hover:bg-blue-700'
-                        } text-white transition-colors`}
+                        } text-white transition-colors shadow-lg hover:shadow-xl transform hover:-translate-y-0.5`}
                     >
                       {isRecording ? (
                           <Square className="w-8 h-8" />
@@ -295,24 +328,23 @@ const TranslationInterface = () => {
                           <Mic className="w-8 h-8" />
                       )}
                     </button>
-                    <p className="mt-4 text-gray-600">
-                      {isRecording ? 'Recording... Click to stop' : 'Click to start recording'}
-                    </p>
-                  </div>
-              )}
 
-              {inputMode === 'text' && (
-                  <div className="mt-4 flex flex-col items-center gap-2">
-                    <div className="text-sm text-gray-400">
-                      {inputText.length} characters
+                    {audioStream && (
+                        <div className="w-full max-w-md p-4">
+                          <AudioVisualizer audioStream={audioStream} />
+                        </div>
+                    )}
+
+                    <div className="flex flex-col items-center space-y-2">
+                      <p className="text-gray-600 text-lg">
+                        {isRecording ? 'לחץ כדי לעצור את ההקלטה' : 'לחץ כדי להתחיל להקליט'}
+                      </p>
+                      {settings.editTranscriptionBeforeTranslate && (
+                          <p className="text-sm text-gray-500 max-w-sm text-center px-4">
+                            לאחר ההקלטה תוכל לערוך את הטקסט המתומלל לפני התרגום
+                          </p>
+                      )}
                     </div>
-                    <button
-                        onClick={() => handleTranslate()}
-                        className="px-8 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all disabled:opacity-50 flex items-center gap-2 font-medium"
-                        disabled={isTranslating || !inputText.trim() || !settings.apiKey}
-                    >
-                      {isTranslating ? 'Translating...' : 'Translate'}
-                    </button>
                   </div>
               )}
             </div>
@@ -328,7 +360,7 @@ const TranslationInterface = () => {
                     <div className={`min-h-[100px] text-gray-600 ${
                         targetLang === 'Hebrew' ? 'text-right' : 'text-left'
                     } text-lg whitespace-pre-wrap break-words`}>
-                      {outputText || <span className="text-gray-400">Translation will appear here...</span>}
+                      {outputText || <span className="text-gray-400">התרגום יופיע כאן...</span>}
                     </div>
                     {outputText && (
                         <div className="flex justify-center pt-2">
@@ -342,7 +374,7 @@ const TranslationInterface = () => {
                                   copySuccess ? 'bg-green-500 hover:bg-green-600' : 'bg-blue-600 hover:bg-blue-700'
                               } text-white`}
                           >
-                            {copySuccess ? 'Copied!' : 'Copy Translation'}
+                            {copySuccess ? 'הועתק!' : 'העתק תרגום'}
                           </button>
                         </div>
                     )}
@@ -357,7 +389,7 @@ const TranslationInterface = () => {
                 <div className="bg-white rounded-xl p-6 w-full max-w-md shadow-xl">
                   <div className="flex items-center gap-3 mb-6">
                     <Settings className="w-6 h-6 text-blue-600" />
-                    <h2 className="text-xl font-semibold">Settings</h2>
+                    <h2 className="text-xl font-semibold">הגדרות</h2>
                   </div>
                   <form onSubmit={(e) => {
                     e.preventDefault();
@@ -365,7 +397,8 @@ const TranslationInterface = () => {
                     handleSettingsSave({
                       model: formData.get('model'),
                       lowercase: formData.get('lowercase') === 'on',
-                      apiKey: formData.get('apiKey')
+                      apiKey: formData.get('apiKey'),
+                      editTranscriptionBeforeTranslate: formData.get('editTranscriptionBeforeTranslate') === 'on'
                     });
                   }}>
                     <div className="space-y-4">
@@ -391,8 +424,8 @@ const TranslationInterface = () => {
                             defaultValue={settings.model}
                             className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50"
                         >
-                          <option value="gpt-4o">GPT-4o (Recommended)</option>
-                          <option value="gpt-4o-mini">GPT-4o-mini (Faster)</option>
+                          <option value="gpt-4o">GPT-4o (מומלץ)</option>
+                          <option value="gpt-4o-mini">GPT-4o-mini (מהיר יותר)</option>
                         </select>
                       </div>
 
@@ -404,8 +437,24 @@ const TranslationInterface = () => {
                             defaultChecked={settings.lowercase}
                             className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
                         />
-                        <label htmlFor="lowercase" className="ml-2 block text-sm text-gray-700">
-                          Convert translation to lowercase
+                        <label htmlFor="lowercase" className="mr-2 block text-sm text-gray-700">
+                          המר תרגום לאותיות קטנות
+                        </label>
+                      </div>
+
+                      <div className="flex items-center bg-gray-50 p-3 rounded-lg">
+                        <input
+                            type="checkbox"
+                            name="editTranscriptionBeforeTranslate"
+                            id="editTranscriptionBeforeTranslate"
+                            defaultChecked={settings.editTranscriptionBeforeTranslate}
+                            className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                        />
+                        <label htmlFor="editTranscriptionBeforeTranslate" className="mr-2 block text-sm text-gray-700">
+                          אפשר עריכת תמלול לפני תרגום
+                          <p className="text-xs text-gray-500 mt-1">
+                            כאשר מופעל, תוכל לערוך את הטקסט המתומלל לפני שליחתו לתרגום
+                          </p>
                         </label>
                       </div>
                     </div>
@@ -416,13 +465,13 @@ const TranslationInterface = () => {
                           onClick={() => setShowSettings(false)}
                           className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors border border-gray-200"
                       >
-                        Cancel
+                        ביטול
                       </button>
                       <button
                           type="submit"
                           className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                       >
-                        Save Changes
+                        שמור שינויים
                       </button>
                     </div>
                   </form>
@@ -433,8 +482,9 @@ const TranslationInterface = () => {
           {/* Helper text */}
           <div className="text-center text-gray-500 text-sm mt-4">
             {inputMode === 'text' ?
-                'Press Enter or click Translate to start translation' :
-                'Click the microphone button to start/stop recording'}
+                'לחץ על Enter או על כפתור התרגום כדי להתחיל' :
+                'לחץ על כפתור המיקרופון כדי להתחיל/לעצור הקלטה'
+            }
           </div>
         </div>
       </div>
