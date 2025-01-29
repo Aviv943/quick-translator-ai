@@ -1,5 +1,5 @@
-import  { useState, useEffect } from 'react';
-import { Settings, Languages, ArrowRightLeft } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { Settings, Languages, ArrowRightLeft, Mic, Square, Type } from 'lucide-react';
 
 const TranslationInterface = () => {
   const [inputText, setInputText] = useState('');
@@ -9,6 +9,13 @@ const TranslationInterface = () => {
   const [targetLang, setTargetLang] = useState('English');
   const [showSettings, setShowSettings] = useState(false);
   const [copySuccess, setCopySuccess] = useState(false);
+  const [inputMode, setInputMode] = useState('text'); // 'text' or 'voice'
+  const [isRecording, setIsRecording] = useState(false);
+  const [audioBlob, setAudioBlob] = useState(null);
+
+  const mediaRecorder = useRef(null);
+  const audioChunks = useRef([]);
+
   const [settings, setSettings] = useState({
     model: localStorage.getItem('model') || 'gpt-4o',
     lowercase: localStorage.getItem('lowercase') === 'false' || false,
@@ -33,8 +40,72 @@ const TranslationInterface = () => {
     }
   }, [sourceLang, targetLang]);
 
-  const handleTranslate = async () => {
-    if (!inputText.trim() || !settings.apiKey) return;
+  // Recording functions
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaRecorder.current = new MediaRecorder(stream);
+
+      mediaRecorder.current.ondataavailable = (event) => {
+        audioChunks.current.push(event.data);
+      };
+
+      mediaRecorder.current.onstop = async () => {
+        const audioBlob = new Blob(audioChunks.current, { type: 'audio/mp3' });
+        setAudioBlob(audioBlob);
+        audioChunks.current = [];
+        await processAudioWithWhisper(audioBlob);
+      };
+
+      mediaRecorder.current.start();
+      setIsRecording(true);
+    } catch (err) {
+      console.error('Error accessing microphone:', err);
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorder.current && isRecording) {
+      mediaRecorder.current.stop();
+      mediaRecorder.current.stream.getTracks().forEach(track => track.stop());
+      setIsRecording(false);
+    }
+  };
+
+  const processAudioWithWhisper = async (blob) => {
+    if (!settings.apiKey) return;
+
+    setIsTranslating(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', blob);
+      formData.append('model', 'whisper-1');
+      formData.append('language', 'he');
+
+      const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${settings.apiKey}`
+        },
+        body: formData
+      });
+
+      if (!response.ok) {
+        throw new Error('Transcription failed');
+      }
+
+      const data = await response.json();
+      setInputText(data.text);
+      await handleTranslate(data.text);
+    } catch (error) {
+      console.error('Transcription error:', error);
+    } finally {
+      setIsTranslating(false);
+    }
+  };
+
+  const handleTranslate = async (textToTranslate = inputText) => {
+    if (!textToTranslate.trim() || !settings.apiKey) return;
 
     setIsTranslating(true);
     try {
@@ -68,7 +139,7 @@ const TranslationInterface = () => {
                    - Avoid complex punctuation like semicolons, em dashes, or parentheses
                 
                 Text to translate:
-                ${inputText}
+                ${textToTranslate}
                 
                 Translation:`
             }
@@ -170,35 +241,80 @@ const TranslationInterface = () => {
               </div>
             </div>
 
+            {/* Input type selector */}
+            <div className="flex justify-center gap-2 py-4 border-b border-gray-200">
+              <button
+                  onClick={() => setInputMode('text')}
+                  className={`px-4 py-2 rounded-lg flex items-center gap-2 ${
+                      inputMode === 'text' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'
+                  }`}
+              >
+                <Type className="w-5 h-5" />
+                <span>Text</span>
+              </button>
+              <button
+                  onClick={() => setInputMode('voice')}
+                  className={`px-4 py-2 rounded-lg flex items-center gap-2 ${
+                      inputMode === 'voice' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'
+                  }`}
+              >
+                <Mic className="w-5 h-5" />
+                <span>Voice</span>
+              </button>
+            </div>
+
             {/* Input area */}
             <div className="p-6 border-b border-gray-200">
-            <textarea
-                value={inputText}
-                onChange={(e) => setInputText(e.target.value)}
-                placeholder="Enter text to translate..."
-                dir={isRTL ? 'rtl' : 'ltr'}
-                className={`w-full h-48 resize-none bg-transparent placeholder-gray-400 focus:outline-none ${
-                    isRTL ? 'text-right' : 'text-left'
-                } text-lg`}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    handleTranslate();
-                  }
-                }}
-            />
-              <div className="mt-4 flex flex-col items-center gap-2">
-                <div className="text-sm text-gray-400">
-                  {inputText.length} characters
-                </div>
-                <button
-                    onClick={handleTranslate}
-                    className="px-8 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all disabled:opacity-50 flex items-center gap-2 font-medium"
-                    disabled={isTranslating || !inputText.trim() || !settings.apiKey}
-                >
-                  {isTranslating ? 'Translating...' : 'Translate'}
-                </button>
-              </div>
+              {inputMode === 'text' ? (
+                  <textarea
+                      value={inputText}
+                      onChange={(e) => setInputText(e.target.value)}
+                      placeholder="Enter text to translate..."
+                      dir={isRTL ? 'rtl' : 'ltr'}
+                      className={`w-full h-48 resize-none bg-transparent placeholder-gray-400 focus:outline-none ${
+                          isRTL ? 'text-right' : 'text-left'
+                      } text-lg`}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                          e.preventDefault();
+                          handleTranslate();
+                        }
+                      }}
+                  />
+              ) : (
+                  <div className="flex flex-col items-center justify-center h-48">
+                    <button
+                        onClick={isRecording ? stopRecording : startRecording}
+                        className={`p-6 rounded-full ${
+                            isRecording ? 'bg-red-500 hover:bg-red-600' : 'bg-blue-600 hover:bg-blue-700'
+                        } text-white transition-colors`}
+                    >
+                      {isRecording ? (
+                          <Square className="w-8 h-8" />
+                      ) : (
+                          <Mic className="w-8 h-8" />
+                      )}
+                    </button>
+                    <p className="mt-4 text-gray-600">
+                      {isRecording ? 'Recording... Click to stop' : 'Click to start recording'}
+                    </p>
+                  </div>
+              )}
+
+              {inputMode === 'text' && (
+                  <div className="mt-4 flex flex-col items-center gap-2">
+                    <div className="text-sm text-gray-400">
+                      {inputText.length} characters
+                    </div>
+                    <button
+                        onClick={() => handleTranslate()}
+                        className="px-8 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all disabled:opacity-50 flex items-center gap-2 font-medium"
+                        disabled={isTranslating || !inputText.trim() || !settings.apiKey}
+                    >
+                      {isTranslating ? 'Translating...' : 'Translate'}
+                    </button>
+                  </div>
+              )}
             </div>
 
             {/* Output area */}
@@ -316,7 +432,9 @@ const TranslationInterface = () => {
 
           {/* Helper text */}
           <div className="text-center text-gray-500 text-sm mt-4">
-            Press Enter or click Translate to start translation
+            {inputMode === 'text' ?
+                'Press Enter or click Translate to start translation' :
+                'Click the microphone button to start/stop recording'}
           </div>
         </div>
       </div>
