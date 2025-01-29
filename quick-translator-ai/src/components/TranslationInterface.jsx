@@ -14,12 +14,13 @@ const TranslationInterface = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [audioStream, setAudioStream] = useState(null);
   const [showEditableTranscription, setShowEditableTranscription] = useState(false);
-  const [recordingError, setRecordingError] = useState('');
-  const [recordingStartTime, setRecordingStartTime] = useState(null);
+  const [recordingError, setRecordingError] = useState('');;
 
   const mediaRecorder = useRef(null);
   const audioChunks = useRef([]);
   const recordingTimeout = useRef(null);
+  const recordingStartTime = useRef(null);
+
 
   const [settings, setSettings] = useState({
     model: localStorage.getItem('model') || 'gpt-4o',
@@ -58,11 +59,19 @@ const TranslationInterface = () => {
   }, [sourceLang, targetLang]);
 
   const startRecording = async () => {
+    if (recordingTimeout.current) {
+      clearTimeout(recordingTimeout.current);
+    }
+
+    setRecordingError('');
+    recordingStartTime.current = Date.now();
+    console.log('Recording started at:', recordingStartTime.current);
+
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       setAudioStream(stream);
       mediaRecorder.current = new MediaRecorder(stream);
-      setRecordingError('');
+      audioChunks.current = [];
 
       mediaRecorder.current.ondataavailable = (event) => {
         audioChunks.current.push(event.data);
@@ -70,7 +79,16 @@ const TranslationInterface = () => {
 
       mediaRecorder.current.onstop = async () => {
         const endTime = Date.now();
-        const recordingDuration = (endTime - recordingStartTime) / 1000;
+        console.log('Recording stopped at:', endTime);
+
+        if (!recordingStartTime.current) {
+          console.error('Recording start time is null!');
+          setRecordingError('Unexpected error: Recording start time missing.');
+          return;
+        }
+
+        const recordingDuration = (endTime - recordingStartTime.current) / 1000;
+        console.log(`Recording duration: ${recordingDuration} seconds`);
 
         if (recordingDuration > 300) {
           setRecordingError('Recording too long. Please limit to 5 minutes.');
@@ -85,17 +103,13 @@ const TranslationInterface = () => {
         setAudioStream(null);
       };
 
-      setRecordingStartTime(Date.now());
       mediaRecorder.current.start();
       setIsRecording(true);
 
-      recordingTimeout.current = setInterval(() => {
-        const currentDuration = (Date.now() - recordingStartTime) / 1000;
-        if (currentDuration >= 300) {
-          stopRecording();
-          setRecordingError('Recording time limit reached (5 minutes)');
-        }
-      }, 1000);
+      recordingTimeout.current = setTimeout(() => {
+        stopRecording();
+        setRecordingError('Recording time limit reached (5 minutes)');
+      }, 300000);
 
     } catch (err) {
       setRecordingError('Error accessing microphone. Please check permissions.');
@@ -105,11 +119,13 @@ const TranslationInterface = () => {
 
   const stopRecording = () => {
     if (mediaRecorder.current && isRecording) {
+      console.log('Stopping recording...');
       mediaRecorder.current.stop();
       mediaRecorder.current.stream.getTracks().forEach(track => track.stop());
       setIsRecording(false);
+
       if (recordingTimeout.current) {
-        clearInterval(recordingTimeout.current);
+        clearTimeout(recordingTimeout.current);
       }
     }
   };
@@ -380,7 +396,7 @@ const TranslationInterface = () => {
                       </p>
                       {settings.editTranscriptionBeforeTranslate && (
                           <p className="text-sm text-gray-500 max-w-sm text-center px-4">
-                            You'll be able to edit the transcribed text before translation
+                            You will be able to edit the transcribed text before translation
                           </p>
                       )}
                     </div>
