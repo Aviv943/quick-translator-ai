@@ -14,9 +14,12 @@ const TranslationInterface = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [audioStream, setAudioStream] = useState(null);
   const [showEditableTranscription, setShowEditableTranscription] = useState(false);
+  const [recordingError, setRecordingError] = useState('');
+  const [recordingStartTime, setRecordingStartTime] = useState(null);
 
   const mediaRecorder = useRef(null);
   const audioChunks = useRef([]);
+  const recordingTimeout = useRef(null);
 
   const [settings, setSettings] = useState({
     model: localStorage.getItem('model') || 'gpt-4o',
@@ -24,6 +27,17 @@ const TranslationInterface = () => {
     apiKey: localStorage.getItem('apiKey') || '',
     editTranscriptionBeforeTranslate: localStorage.getItem('editTranscriptionBeforeTranslate') === 'true' || false
   });
+
+  useEffect(() => {
+    return () => {
+      if (recordingTimeout.current) {
+        clearTimeout(recordingTimeout.current);
+      }
+      if (audioStream) {
+        audioStream.getTracks().forEach(track => track.stop());
+      }
+    };
+  }, [audioStream]);
 
   const getAvailableLanguages = (isSource) => {
     const allLanguages = [
@@ -43,34 +57,48 @@ const TranslationInterface = () => {
     }
   }, [sourceLang, targetLang]);
 
-  useEffect(() => {
-    return () => {
-      if (audioStream) {
-        audioStream.getTracks().forEach(track => track.stop());
-      }
-    };
-  }, [audioStream]);
-
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       setAudioStream(stream);
       mediaRecorder.current = new MediaRecorder(stream);
+      setRecordingError('');
 
       mediaRecorder.current.ondataavailable = (event) => {
         audioChunks.current.push(event.data);
       };
 
       mediaRecorder.current.onstop = async () => {
+        const endTime = Date.now();
+        const recordingDuration = (endTime - recordingStartTime) / 1000;
+
+        if (recordingDuration > 300) {
+          setRecordingError('Recording too long. Please limit to 5 minutes.');
+          audioChunks.current = [];
+          setAudioStream(null);
+          return;
+        }
+
         const audioBlob = new Blob(audioChunks.current, { type: 'audio/mp3' });
         audioChunks.current = [];
         await processAudioWithWhisper(audioBlob);
         setAudioStream(null);
       };
 
+      setRecordingStartTime(Date.now());
       mediaRecorder.current.start();
       setIsRecording(true);
+
+      recordingTimeout.current = setInterval(() => {
+        const currentDuration = (Date.now() - recordingStartTime) / 1000;
+        if (currentDuration >= 300) {
+          stopRecording();
+          setRecordingError('Recording time limit reached (5 minutes)');
+        }
+      }, 1000);
+
     } catch (err) {
+      setRecordingError('Error accessing microphone. Please check permissions.');
       console.error('Error accessing microphone:', err);
     }
   };
@@ -80,6 +108,9 @@ const TranslationInterface = () => {
       mediaRecorder.current.stop();
       mediaRecorder.current.stream.getTracks().forEach(track => track.stop());
       setIsRecording(false);
+      if (recordingTimeout.current) {
+        clearInterval(recordingTimeout.current);
+      }
     }
   };
 
@@ -115,6 +146,7 @@ const TranslationInterface = () => {
       }
     } catch (error) {
       console.error('Transcription error:', error);
+      setRecordingError('Transcription failed. Please try again.');
     } finally {
       setIsTranslating(false);
     }
@@ -285,11 +317,11 @@ const TranslationInterface = () => {
             {/* Input area */}
             <div className="p-6 border-b border-gray-200">
               {inputMode === 'text' || showEditableTranscription ? (
-                  <>
+                  <div>
                 <textarea
                     value={inputText}
                     onChange={(e) => setInputText(e.target.value)}
-                    placeholder={showEditableTranscription ? "ערוך את הטקסט המתומלל כאן..." : "הכנס טקסט לתרגום..."}
+                    placeholder={showEditableTranscription ? "Edit transcribed text..." : "Enter text to translate..."}
                     dir={isRTL ? 'rtl' : 'ltr'}
                     className={`w-full h-48 resize-none bg-transparent placeholder-gray-400 focus:outline-none ${
                         isRTL ? 'text-right' : 'text-left'
@@ -310,10 +342,10 @@ const TranslationInterface = () => {
                           className="px-8 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all disabled:opacity-50 flex items-center gap-2 font-medium"
                           disabled={isTranslating || !inputText.trim() || !settings.apiKey}
                       >
-                        {isTranslating ? 'Translating...' : showEditableTranscription ? 'תרגם טקסט מתוקן' : 'Translate'}
+                        {isTranslating ? 'Translating...' : (showEditableTranscription ? 'Translate Edited Text' : 'Translate')}
                       </button>
                     </div>
-                  </>
+                  </div>
               ) : (
                   <div className="flex flex-col items-center justify-center space-y-8">
                     <button
@@ -321,6 +353,7 @@ const TranslationInterface = () => {
                         className={`p-6 rounded-full ${
                             isRecording ? 'bg-red-500 hover:bg-red-600' : 'bg-blue-600 hover:bg-blue-700'
                         } text-white transition-colors shadow-lg hover:shadow-xl transform hover:-translate-y-0.5`}
+                        disabled={!!recordingError}
                     >
                       {isRecording ? (
                           <Square className="w-8 h-8" />
@@ -330,18 +363,24 @@ const TranslationInterface = () => {
                     </button>
 
                     {audioStream && (
-                        <div className="w-full max-w-md p-4">
+                        <div className="w-full max-w-md flex justify-center">
                           <AudioVisualizer audioStream={audioStream} />
+                        </div>
+                    )}
+
+                    {recordingError && (
+                        <div className="text-red-500 text-center px-4 py-2 bg-red-50 rounded-lg">
+                          {recordingError}
                         </div>
                     )}
 
                     <div className="flex flex-col items-center space-y-2">
                       <p className="text-gray-600 text-lg">
-                        {isRecording ? 'לחץ כדי לעצור את ההקלטה' : 'לחץ כדי להתחיל להקליט'}
+                        {isRecording ? 'Click to stop recording' : 'Click to start recording'}
                       </p>
                       {settings.editTranscriptionBeforeTranslate && (
                           <p className="text-sm text-gray-500 max-w-sm text-center px-4">
-                            לאחר ההקלטה תוכל לערוך את הטקסט המתומלל לפני התרגום
+                            You'll be able to edit the transcribed text before translation
                           </p>
                       )}
                     </div>
@@ -360,7 +399,7 @@ const TranslationInterface = () => {
                     <div className={`min-h-[100px] text-gray-600 ${
                         targetLang === 'Hebrew' ? 'text-right' : 'text-left'
                     } text-lg whitespace-pre-wrap break-words`}>
-                      {outputText || <span className="text-gray-400">התרגום יופיע כאן...</span>}
+                      {outputText || <span className="text-gray-400">Translation will appear here...</span>}
                     </div>
                     {outputText && (
                         <div className="flex justify-center pt-2">
@@ -374,7 +413,7 @@ const TranslationInterface = () => {
                                   copySuccess ? 'bg-green-500 hover:bg-green-600' : 'bg-blue-600 hover:bg-blue-700'
                               } text-white`}
                           >
-                            {copySuccess ? 'הועתק!' : 'העתק תרגום'}
+                            {copySuccess ? 'Copied!' : 'Copy Translation'}
                           </button>
                         </div>
                     )}
@@ -389,7 +428,7 @@ const TranslationInterface = () => {
                 <div className="bg-white rounded-xl p-6 w-full max-w-md shadow-xl">
                   <div className="flex items-center gap-3 mb-6">
                     <Settings className="w-6 h-6 text-blue-600" />
-                    <h2 className="text-xl font-semibold">הגדרות</h2>
+                    <h2 className="text-xl font-semibold">Settings</h2>
                   </div>
                   <form onSubmit={(e) => {
                     e.preventDefault();
@@ -424,8 +463,8 @@ const TranslationInterface = () => {
                             defaultValue={settings.model}
                             className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50"
                         >
-                          <option value="gpt-4o">GPT-4o (מומלץ)</option>
-                          <option value="gpt-4o-mini">GPT-4o-mini (מהיר יותר)</option>
+                          <option value="gpt-4o">GPT-4o (Recommended)</option>
+                          <option value="gpt-4o-mini">GPT-4o-mini (Faster)</option>
                         </select>
                       </div>
 
@@ -437,8 +476,8 @@ const TranslationInterface = () => {
                             defaultChecked={settings.lowercase}
                             className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
                         />
-                        <label htmlFor="lowercase" className="mr-2 block text-sm text-gray-700">
-                          המר תרגום לאותיות קטנות
+                        <label htmlFor="lowercase" className="ml-2 block text-sm text-gray-700">
+                          Convert translation to lowercase
                         </label>
                       </div>
 
@@ -450,10 +489,10 @@ const TranslationInterface = () => {
                             defaultChecked={settings.editTranscriptionBeforeTranslate}
                             className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
                         />
-                        <label htmlFor="editTranscriptionBeforeTranslate" className="mr-2 block text-sm text-gray-700">
-                          אפשר עריכת תמלול לפני תרגום
+                        <label htmlFor="editTranscriptionBeforeTranslate" className="ml-2 block text-sm text-gray-700">
+                          Edit transcription before translation
                           <p className="text-xs text-gray-500 mt-1">
-                            כאשר מופעל, תוכל לערוך את הטקסט המתומלל לפני שליחתו לתרגום
+                            When enabled, you can review and edit the transcribed text before translation
                           </p>
                         </label>
                       </div>
@@ -465,13 +504,13 @@ const TranslationInterface = () => {
                           onClick={() => setShowSettings(false)}
                           className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors border border-gray-200"
                       >
-                        ביטול
+                        Cancel
                       </button>
                       <button
                           type="submit"
                           className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                       >
-                        שמור שינויים
+                        Save Changes
                       </button>
                     </div>
                   </form>
@@ -482,9 +521,8 @@ const TranslationInterface = () => {
           {/* Helper text */}
           <div className="text-center text-gray-500 text-sm mt-4">
             {inputMode === 'text' ?
-                'לחץ על Enter או על כפתור התרגום כדי להתחיל' :
-                'לחץ על כפתור המיקרופון כדי להתחיל/לעצור הקלטה'
-            }
+                'Press Enter or click Translate to start translation' :
+                'Click the microphone button to start/stop recording'}
           </div>
         </div>
       </div>
