@@ -1,5 +1,6 @@
-import  { useState, useEffect } from 'react';
-import { Settings, Languages, ArrowRightLeft } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { Settings, Languages, Mic, Square, ArrowRightLeft } from 'lucide-react';
+import AudioVisualizer from './AudioVisualizer';
 
 const TranslationInterface = () => {
   const [inputText, setInputText] = useState('');
@@ -9,11 +10,35 @@ const TranslationInterface = () => {
   const [targetLang, setTargetLang] = useState('English');
   const [showSettings, setShowSettings] = useState(false);
   const [copySuccess, setCopySuccess] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [audioStream, setAudioStream] = useState(null);
+  // eslint-disable-next-line no-unused-vars
+  const [showEditableTranscription, setShowEditableTranscription] = useState(false);
+  const [recordingError, setRecordingError] = useState('');
+
+  const mediaRecorder = useRef(null);
+  const audioChunks = useRef([]);
+  const recordingTimeout = useRef(null);
+  const recordingStartTime = useRef(null);
+
   const [settings, setSettings] = useState({
     model: localStorage.getItem('model') || 'gpt-4o',
-    lowercase: localStorage.getItem('lowercase') === 'false' || false,
-    apiKey: localStorage.getItem('apiKey') || ''
+    lowercase: localStorage.getItem('lowercase') === 'true' || false,
+    apiKey: localStorage.getItem('apiKey') || '',
+    editTranscriptionBeforeTranslate: localStorage.getItem('editTranscriptionBeforeTranslate') === 'true' || false,
+    recordingTimeLimit: parseInt(localStorage.getItem('recordingTimeLimit')) || 5
   });
+
+  useEffect(() => {
+    return () => {
+      if (recordingTimeout.current) {
+        clearTimeout(recordingTimeout.current);
+      }
+      if (audioStream) {
+        audioStream.getTracks().forEach(track => track.stop());
+      }
+    };
+  }, [audioStream]);
 
   const getAvailableLanguages = (isSource) => {
     const allLanguages = [
@@ -33,10 +58,110 @@ const TranslationInterface = () => {
     }
   }, [sourceLang, targetLang]);
 
-  const handleTranslate = async () => {
-    if (!inputText.trim() || !settings.apiKey) return;
+  const startRecording = async () => {
+    if (recordingTimeout.current) {
+      clearTimeout(recordingTimeout.current);
+    }
+
+    setRecordingError('');
+    recordingStartTime.current = Date.now();
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      setAudioStream(stream);
+      mediaRecorder.current = new MediaRecorder(stream);
+      audioChunks.current = [];
+
+      mediaRecorder.current.ondataavailable = (event) => {
+        audioChunks.current.push(event.data);
+      };
+
+      mediaRecorder.current.onstop = async () => {
+        const endTime = Date.now();
+        const recordingDuration = (endTime - recordingStartTime.current) / 1000;
+
+        if (recordingDuration > settings.recordingTimeLimit * 60) {
+          setRecordingError(`Recording too long. Please limit to ${settings.recordingTimeLimit} minutes.`);
+          audioChunks.current = [];
+          setAudioStream(null);
+          return;
+        }
+
+        const audioBlob = new Blob(audioChunks.current, { type: 'audio/mp3' });
+        audioChunks.current = [];
+        await processAudioWithWhisper(audioBlob);
+        setAudioStream(null);
+      };
+
+      mediaRecorder.current.start();
+      setIsRecording(true);
+
+      recordingTimeout.current = setTimeout(() => {
+        stopRecording();
+        setRecordingError(`Recording time limit reached (${settings.recordingTimeLimit} minutes)`);
+      }, settings.recordingTimeLimit * 60 * 1000);
+
+    } catch (err) {
+      setRecordingError('Error accessing microphone. Please check permissions.');
+      console.error('Error accessing microphone:', err);
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorder.current && isRecording) {
+      mediaRecorder.current.stop();
+      mediaRecorder.current.stream.getTracks().forEach(track => track.stop());
+      setIsRecording(false);
+      if (recordingTimeout.current) {
+        clearTimeout(recordingTimeout.current);
+      }
+    }
+  };
+
+  const processAudioWithWhisper = async (blob) => {
+    if (!settings.apiKey) return;
 
     setIsTranslating(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', blob);
+      formData.append('model', 'whisper-1');
+      formData.append('language', 'he');
+
+      const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${settings.apiKey}`
+        },
+        body: formData
+      });
+
+      if (!response.ok) {
+        throw new Error('Transcription failed');
+      }
+
+      const data = await response.json();
+      setInputText(data.text);
+
+      if (settings.editTranscriptionBeforeTranslate) {
+        setShowEditableTranscription(true);
+      } else {
+        await handleTranslate(data.text);
+      }
+    } catch (error) {
+      console.error('Transcription error:', error);
+      setRecordingError('Transcription failed. Please try again.');
+    } finally {
+      setIsTranslating(false);
+    }
+  };
+
+  const handleTranslate = async (textToTranslate = inputText) => {
+    if (!textToTranslate.trim() || !settings.apiKey) return;
+
+    setShowEditableTranscription(false);
+    setIsTranslating(true);
+
     try {
       const response = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
@@ -68,7 +193,7 @@ const TranslationInterface = () => {
                    - Avoid complex punctuation like semicolons, em dashes, or parentheses
                 
                 Text to translate:
-                ${inputText}
+                ${textToTranslate}
                 
                 Translation:`
             }
@@ -100,11 +225,24 @@ const TranslationInterface = () => {
     }
   };
 
-  const handleSettingsSave = (newSettings) => {
+  const handleSettingsSave = (event) => {
+    event.preventDefault();
+    const formData = new FormData(event.target);
+
+    const newSettings = {
+      model: formData.get('model'),
+      lowercase: formData.get('lowercase') === 'on',
+      apiKey: formData.get('apiKey'),
+      editTranscriptionBeforeTranslate: formData.get('editTranscriptionBeforeTranslate') === 'on',
+      recordingTimeLimit: Math.min(Math.max(parseInt(formData.get('recordingTimeLimit')) || 5, 1), 30)
+    };
+
     setSettings(newSettings);
     localStorage.setItem('model', newSettings.model);
     localStorage.setItem('lowercase', newSettings.lowercase);
     localStorage.setItem('apiKey', newSettings.apiKey);
+    localStorage.setItem('editTranscriptionBeforeTranslate', newSettings.editTranscriptionBeforeTranslate);
+    localStorage.setItem('recordingTimeLimit', newSettings.recordingTimeLimit);
     setShowSettings(false);
   };
 
@@ -170,34 +308,68 @@ const TranslationInterface = () => {
               </div>
             </div>
 
-            {/* Input area */}
-            <div className="p-6 border-b border-gray-200">
-            <textarea
-                value={inputText}
-                onChange={(e) => setInputText(e.target.value)}
-                placeholder="Enter text to translate..."
-                dir={isRTL ? 'rtl' : 'ltr'}
-                className={`w-full h-48 resize-none bg-transparent placeholder-gray-400 focus:outline-none ${
-                    isRTL ? 'text-right' : 'text-left'
-                } text-lg`}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    handleTranslate();
-                  }
-                }}
-            />
-              <div className="mt-4 flex flex-col items-center gap-2">
-                <div className="text-sm text-gray-400">
-                  {inputText.length} characters
+            {/* Recording button - Moved here */}
+            <div className="flex justify-center py-4">
+              <button
+                  onClick={isRecording ? stopRecording : startRecording}
+                  className={`p-2 rounded-full ${
+                      isRecording ? 'bg-red-500 hover:bg-red-600' : 'bg-blue-600 hover:bg-blue-700'
+                  } text-white transition-colors shadow-lg hover:shadow-xl transform hover:-translate-y-0.5`}
+                  disabled={!!recordingError}
+              >
+                {isRecording ? (
+                    <Square className="w-6 h-6" />
+                ) : (
+                    <Mic className="w-6 h-6" />
+                )}
+              </button>
+            </div>
+
+            {/* Input area with visualizer */}
+            <div className="p-6 border-t border-gray-200">
+              <div>
+              <textarea
+                  value={inputText}
+                  onChange={(e) => setInputText(e.target.value)}
+                  placeholder="Type or record your text here..."
+                  dir={isRTL ? 'rtl' : 'ltr'}
+                  className={`w-full h-48 resize-none bg-transparent placeholder-gray-400 focus:outline-none ${
+                      isRTL ? 'text-right' : 'text-left'
+                  } text-lg`}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      handleTranslate();
+                    }
+                  }}
+              />
+
+                {/* Audio visualizer */}
+                {audioStream && (
+                    <div className="mt-2 w-full flex justify-center">
+                      <AudioVisualizer audioStream={audioStream} />
+                    </div>
+                )}
+
+                {/* Error message */}
+                {recordingError && (
+                    <div className="mt-2 text-red-500 text-center px-4 py-2 bg-red-50 rounded-lg">
+                      {recordingError}
+                    </div>
+                )}
+
+                <div className="mt-4 flex flex-col items-center gap-2">
+                  <div className="text-sm text-gray-400">
+                    {inputText.length} characters
+                  </div>
+                  <button
+                      onClick={() => handleTranslate()}
+                      className="px-8 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all disabled:opacity-50 flex items-center gap-2 font-medium"
+                      disabled={isTranslating || !inputText.trim() || !settings.apiKey}
+                  >
+                    {isTranslating ? 'Translating...' : 'Translate'}
+                  </button>
                 </div>
-                <button
-                    onClick={handleTranslate}
-                    className="px-8 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all disabled:opacity-50 flex items-center gap-2 font-medium"
-                    disabled={isTranslating || !inputText.trim() || !settings.apiKey}
-                >
-                  {isTranslating ? 'Translating...' : 'Translate'}
-                </button>
               </div>
             </div>
 
@@ -243,15 +415,7 @@ const TranslationInterface = () => {
                     <Settings className="w-6 h-6 text-blue-600" />
                     <h2 className="text-xl font-semibold">Settings</h2>
                   </div>
-                  <form onSubmit={(e) => {
-                    e.preventDefault();
-                    const formData = new FormData(e.target);
-                    handleSettingsSave({
-                      model: formData.get('model'),
-                      lowercase: formData.get('lowercase') === 'on',
-                      apiKey: formData.get('apiKey')
-                    });
-                  }}>
+                  <form onSubmit={handleSettingsSave}>
                     <div className="space-y-4">
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -280,6 +444,23 @@ const TranslationInterface = () => {
                         </select>
                       </div>
 
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Maximum Recording Time (minutes)
+                        </label>
+                        <input
+                            type="number"
+                            name="recordingTimeLimit"
+                            defaultValue={settings.recordingTimeLimit}
+                            min="1"
+                            max="30"
+                            className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50"
+                        />
+                        <p className="text-xs text-gray-500 mt-1">
+                          Set a limit between 1-30 minutes (default: 5)
+                        </p>
+                      </div>
+
                       <div className="flex items-center bg-gray-50 p-3 rounded-lg">
                         <input
                             type="checkbox"
@@ -290,6 +471,22 @@ const TranslationInterface = () => {
                         />
                         <label htmlFor="lowercase" className="ml-2 block text-sm text-gray-700">
                           Convert translation to lowercase
+                        </label>
+                      </div>
+
+                      <div className="flex items-center bg-gray-50 p-3 rounded-lg">
+                        <input
+                            type="checkbox"
+                            name="editTranscriptionBeforeTranslate"
+                            id="editTranscriptionBeforeTranslate"
+                            defaultChecked={settings.editTranscriptionBeforeTranslate}
+                            className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                        />
+                        <label htmlFor="editTranscriptionBeforeTranslate" className="ml-2 block text-sm text-gray-700">
+                          Edit transcription before translation
+                          <p className="text-xs text-gray-500 mt-1">
+                            When enabled, you can review and edit the transcribed text before translation
+                          </p>
                         </label>
                       </div>
                     </div>
@@ -313,11 +510,6 @@ const TranslationInterface = () => {
                 </div>
               </div>
           )}
-
-          {/* Helper text */}
-          <div className="text-center text-gray-500 text-sm mt-4">
-            Press Enter or click Translate to start translation
-          </div>
         </div>
       </div>
   );
