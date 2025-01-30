@@ -14,19 +14,19 @@ const TranslationInterface = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [audioStream, setAudioStream] = useState(null);
   const [showEditableTranscription, setShowEditableTranscription] = useState(false);
-  const [recordingError, setRecordingError] = useState('');;
+  const [recordingError, setRecordingError] = useState('');
 
   const mediaRecorder = useRef(null);
   const audioChunks = useRef([]);
   const recordingTimeout = useRef(null);
   const recordingStartTime = useRef(null);
 
-
   const [settings, setSettings] = useState({
     model: localStorage.getItem('model') || 'gpt-4o',
     lowercase: localStorage.getItem('lowercase') === 'true' || false,
     apiKey: localStorage.getItem('apiKey') || '',
-    editTranscriptionBeforeTranslate: localStorage.getItem('editTranscriptionBeforeTranslate') === 'true' || false
+    editTranscriptionBeforeTranslate: localStorage.getItem('editTranscriptionBeforeTranslate') === 'true' || false,
+    recordingTimeLimit: parseInt(localStorage.getItem('recordingTimeLimit')) || 5 // Default 5 minutes
   });
 
   useEffect(() => {
@@ -65,7 +65,6 @@ const TranslationInterface = () => {
 
     setRecordingError('');
     recordingStartTime.current = Date.now();
-    console.log('Recording started at:', recordingStartTime.current);
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -79,19 +78,10 @@ const TranslationInterface = () => {
 
       mediaRecorder.current.onstop = async () => {
         const endTime = Date.now();
-        console.log('Recording stopped at:', endTime);
-
-        if (!recordingStartTime.current) {
-          console.error('Recording start time is null!');
-          setRecordingError('Unexpected error: Recording start time missing.');
-          return;
-        }
-
         const recordingDuration = (endTime - recordingStartTime.current) / 1000;
-        console.log(`Recording duration: ${recordingDuration} seconds`);
 
-        if (recordingDuration > 300) {
-          setRecordingError('Recording too long. Please limit to 5 minutes.');
+        if (recordingDuration > settings.recordingTimeLimit * 60) {
+          setRecordingError(`Recording too long. Please limit to ${settings.recordingTimeLimit} minutes.`);
           audioChunks.current = [];
           setAudioStream(null);
           return;
@@ -108,8 +98,8 @@ const TranslationInterface = () => {
 
       recordingTimeout.current = setTimeout(() => {
         stopRecording();
-        setRecordingError('Recording time limit reached (5 minutes)');
-      }, 300000);
+        setRecordingError(`Recording time limit reached (${settings.recordingTimeLimit} minutes)`);
+      }, settings.recordingTimeLimit * 60 * 1000);
 
     } catch (err) {
       setRecordingError('Error accessing microphone. Please check permissions.');
@@ -119,11 +109,9 @@ const TranslationInterface = () => {
 
   const stopRecording = () => {
     if (mediaRecorder.current && isRecording) {
-      console.log('Stopping recording...');
       mediaRecorder.current.stop();
       mediaRecorder.current.stream.getTracks().forEach(track => track.stop());
       setIsRecording(false);
-
       if (recordingTimeout.current) {
         clearTimeout(recordingTimeout.current);
       }
@@ -237,12 +225,24 @@ const TranslationInterface = () => {
     }
   };
 
-  const handleSettingsSave = (newSettings) => {
+  const handleSettingsSave = (event) => {
+    event.preventDefault();
+    const formData = new FormData(event.target);
+
+    const newSettings = {
+      model: formData.get('model'),
+      lowercase: formData.get('lowercase') === 'on',
+      apiKey: formData.get('apiKey'),
+      editTranscriptionBeforeTranslate: formData.get('editTranscriptionBeforeTranslate') === 'on',
+      recordingTimeLimit: Math.min(Math.max(parseInt(formData.get('recordingTimeLimit')) || 5, 1), 30)
+    };
+
     setSettings(newSettings);
     localStorage.setItem('model', newSettings.model);
     localStorage.setItem('lowercase', newSettings.lowercase);
     localStorage.setItem('apiKey', newSettings.apiKey);
     localStorage.setItem('editTranscriptionBeforeTranslate', newSettings.editTranscriptionBeforeTranslate);
+    localStorage.setItem('recordingTimeLimit', newSettings.recordingTimeLimit);
     setShowSettings(false);
   };
 
@@ -396,7 +396,7 @@ const TranslationInterface = () => {
                       </p>
                       {settings.editTranscriptionBeforeTranslate && (
                           <p className="text-sm text-gray-500 max-w-sm text-center px-4">
-                            You will be able to edit the transcribed text before translation
+                            You'll be able to edit the transcribed text before translation
                           </p>
                       )}
                     </div>
@@ -446,16 +446,7 @@ const TranslationInterface = () => {
                     <Settings className="w-6 h-6 text-blue-600" />
                     <h2 className="text-xl font-semibold">Settings</h2>
                   </div>
-                  <form onSubmit={(e) => {
-                    e.preventDefault();
-                    const formData = new FormData(e.target);
-                    handleSettingsSave({
-                      model: formData.get('model'),
-                      lowercase: formData.get('lowercase') === 'on',
-                      apiKey: formData.get('apiKey'),
-                      editTranscriptionBeforeTranslate: formData.get('editTranscriptionBeforeTranslate') === 'on'
-                    });
-                  }}>
+                  <form onSubmit={handleSettingsSave}>
                     <div className="space-y-4">
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -482,6 +473,23 @@ const TranslationInterface = () => {
                           <option value="gpt-4o">GPT-4o (Recommended)</option>
                           <option value="gpt-4o-mini">GPT-4o-mini (Faster)</option>
                         </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Maximum Recording Time (minutes)
+                        </label>
+                        <input
+                            type="number"
+                            name="recordingTimeLimit"
+                            defaultValue={settings.recordingTimeLimit}
+                            min="1"
+                            max="30"
+                            className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50"
+                        />
+                        <p className="text-xs text-gray-500 mt-1">
+                          Set a limit between 1-30 minutes (default: 5)
+                        </p>
                       </div>
 
                       <div className="flex items-center bg-gray-50 p-3 rounded-lg">
