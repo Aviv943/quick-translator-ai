@@ -1,9 +1,15 @@
-# React + Vite
+# Quick Translator AI
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Quick Translator AI is a React-based web application that provides quick and efficient translations using OpenAI's GPT-4o models. The application allows users to input text, translate it into a selected language, and copy the translated text to the clipboard. It also includes settings for configuring the OpenAI API key, selecting the AI model, and other preferences.
 
-Currently, two official plugins are available:
+## Features
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react/README.md) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- **Real-time Translation**: Translate text in real-time using OpenAI's GPT-4o models.
+- **Copy to Clipboard**: Easily copy the translated text to the clipboard.
+- **Settings Modal**: Configure API key, AI model, and other preferences.
+- **Responsive Design**: Optimized for various screen sizes.
 
+## Prerequisites
+
+- Node.js (version 14 or higher)
+- npm (version 6 or higher)
