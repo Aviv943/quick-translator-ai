@@ -1,0 +1,7 @@
+version: '3.7'
+services:
+  translator-ai:
+    image: aviv943/quick-translator-ai:latest
+    container_name: quick-translator-ai
+    ports:
+      - "8965:80"
