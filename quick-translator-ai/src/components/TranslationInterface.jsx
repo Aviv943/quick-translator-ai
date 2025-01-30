@@ -26,7 +26,7 @@ const TranslationInterface = () => {
     lowercase: localStorage.getItem('lowercase') === 'true' || false,
     apiKey: localStorage.getItem('apiKey') || '',
     editTranscriptionBeforeTranslate: localStorage.getItem('editTranscriptionBeforeTranslate') === 'true' || false,
-    recordingTimeLimit: parseInt(localStorage.getItem('recordingTimeLimit')) || 5 // Default 5 minutes
+    recordingTimeLimit: parseInt(localStorage.getItem('recordingTimeLimit')) || 5
   });
 
   useEffect(() => {
@@ -311,7 +311,10 @@ const TranslationInterface = () => {
             {/* Input type selector */}
             <div className="flex justify-center gap-2 py-4 border-b border-gray-200">
               <button
-                  onClick={() => setInputMode('text')}
+                  onClick={() => {
+                    setInputMode('text');
+                    setShowEditableTranscription(false);
+                  }}
                   className={`px-4 py-2 rounded-lg flex items-center gap-2 ${
                       inputMode === 'text' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'
                   }`}
@@ -353,13 +356,26 @@ const TranslationInterface = () => {
                       <div className="text-sm text-gray-400">
                         {inputText.length} characters
                       </div>
-                      <button
-                          onClick={() => handleTranslate()}
-                          className="px-8 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all disabled:opacity-50 flex items-center gap-2 font-medium"
-                          disabled={isTranslating || !inputText.trim() || !settings.apiKey}
-                      >
-                        {isTranslating ? 'Translating...' : (showEditableTranscription ? 'Translate Edited Text' : 'Translate')}
-                      </button>
+                      <div className="flex gap-2">
+                        {showEditableTranscription && inputMode === 'voice' && (
+                            <button
+                                onClick={() => {
+                                  setInputText('');
+                                  setShowEditableTranscription(false);
+                                }}
+                                className="px-8 py-2.5 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-all flex items-center gap-2 font-medium"
+                            >
+                              Back to Recording
+                            </button>
+                        )}
+                        <button
+                            onClick={() => handleTranslate()}
+                            className="px-8 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all disabled:opacity-50 flex items-center gap-2 font-medium"
+                            disabled={isTranslating || !inputText.trim() || !settings.apiKey}
+                        >
+                          {isTranslating ? 'Translating...' : (showEditableTranscription ? 'Translate Edited Text' : 'Translate')}
+                        </button>
+                      </div>
                     </div>
                   </div>
               ) : (
@@ -396,7 +412,7 @@ const TranslationInterface = () => {
                       </p>
                       {settings.editTranscriptionBeforeTranslate && (
                           <p className="text-sm text-gray-500 max-w-sm text-center px-4">
-                            You'll be able to edit the transcribed text before translation
+                            You will be able to edit the transcribed text before translation
                           </p>
                       )}
                     </div>
