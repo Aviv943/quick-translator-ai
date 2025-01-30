@@ -5,13 +5,13 @@ FROM node:18-slim AS build
 WORKDIR /app
 
 # Copy package.json and package-lock.json
-COPY ../package.json package-lock.json ./
+COPY package*.json ./
 
 # Install dependencies
 RUN npm install
 
 # Copy the rest of the application source code
-COPY .. .
+COPY . .
 
 # Build the React app
 RUN npm run build
@@ -22,8 +22,11 @@ FROM nginx:stable-alpine
 # Copy the built React app from the previous stage to the NGINX directory
 COPY --from=build /app/dist /usr/share/nginx/html
 
+# Copy custom nginx configuration (if needed)
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+
 # Expose the default NGINX port
-EXPOSE 8965
+EXPOSE 80
 
 # Start NGINX
 CMD ["nginx", "-g", "daemon off;"]
