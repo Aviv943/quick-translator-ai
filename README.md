@@ -2,16 +2,27 @@
 
 A powerful, real-time translation application powered by artificial intelligence that supports voice recording, text input, and seamless translations across multiple languages.
 
-## 🌟 Features
+![QuickTranslatorAI Interface](public/app.png)
+
+## 🤖 More Than Just Translation
+
+- **Contextual Understanding**: Analyzes the full context of your text, not just individual words
+- **Intent Preservation**: Captures and maintains the writer's original intention
+- **Style Matching**: Preserves the author's personal writing style in the translation
+- **Natural Output**: Produces translations that sound natural and fluid in the target language
+- **Tone Recognition**: Understands and maintains the emotional tone of the original text
+- **Cultural Adaptation**: Makes appropriate cultural adjustments while preserving meaning
+
+## 🌟 Key Features
 
 - 🎙️ Voice Recording with Audio Visualization
-- 🔄 Real-time Translation
+- 🔄 Real-time Smart Translation
 - 📝 Text Input Support
-- 🌍 Multiple Language Support (including Hebrew, English, Spanish, French, German, Italian, Russian, Arabic)
+- 🌍 Multiple Language Support (Hebrew, English, Spanish, French, German, Italian, Russian, Arabic)
 - 🎨 Modern, Responsive UI with RTL Support
 - ⚡ PWA Support with Offline Capabilities
 - 🔒 Secure API Key Management
-- 📊 Audio Visualization During Recording
+- 📊 Real-time Audio Visualization
 
 ## 🛠️ Technical Stack
 
