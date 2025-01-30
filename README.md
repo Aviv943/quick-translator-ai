@@ -1,6 +1,6 @@
 # QuickTranslatorAI 🌐
 
-A powerful, real-time translation application powered by artificial intelligence that supports voice recording, text input, and seamless translations across multiple languages [Pasted_Text_1738257409898.txt].
+A powerful, real-time translation application powered by artificial intelligence that supports voice recording, text input, and seamless translations across multiple languages.
 
 ## 🌟 Features
 
