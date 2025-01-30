@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Settings, Languages, ArrowRightLeft, Mic, Square, Type } from 'lucide-react';
+import { Settings, Languages, Mic, Square, ArrowRightLeft } from 'lucide-react';
 import AudioVisualizer from './AudioVisualizer';
 
 const TranslationInterface = () => {
@@ -10,9 +10,9 @@ const TranslationInterface = () => {
   const [targetLang, setTargetLang] = useState('English');
   const [showSettings, setShowSettings] = useState(false);
   const [copySuccess, setCopySuccess] = useState(false);
-  const [inputMode, setInputMode] = useState('text');
   const [isRecording, setIsRecording] = useState(false);
   const [audioStream, setAudioStream] = useState(null);
+  // eslint-disable-next-line no-unused-vars
   const [showEditableTranscription, setShowEditableTranscription] = useState(false);
   const [recordingError, setRecordingError] = useState('');
 
@@ -251,7 +251,7 @@ const TranslationInterface = () => {
   return (
       <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white p-4">
         <div className="max-w-3xl mx-auto">
-          {/* Header - Same as before */}
+          {/* Header */}
           <div className="flex items-center justify-between mb-8 px-2">
             <div className="flex items-center gap-3">
               <div className="bg-blue-600 rounded-xl p-2">
@@ -273,7 +273,7 @@ const TranslationInterface = () => {
 
           {/* Main translation interface */}
           <div className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden">
-            {/* Language selection bar - Same as before */}
+            {/* Language selection bar */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 bg-gray-50">
               <div className="flex items-center gap-2 flex-1">
                 <select
@@ -308,59 +308,30 @@ const TranslationInterface = () => {
               </div>
             </div>
 
-            {/* Input type selector and Recording button */}
-            <div className="flex justify-between items-center px-6 py-4 border-b border-gray-200">
-              <div className="flex gap-2">
-                <button
-                    onClick={() => setInputMode('text')}
-                    className={`px-4 py-2 rounded-lg flex items-center gap-2 ${
-                        inputMode === 'text' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'
-                    }`}
-                >
-                  <Type className="w-5 h-5" />
-                  <span>Text</span>
-                </button>
-                <button
-                    onClick={() => setInputMode('voice')}
-                    className={`px-4 py-2 rounded-lg flex items-center gap-2 ${
-                        inputMode === 'voice' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'
-                    }`}
-                >
-                  <Mic className="w-5 h-5" />
-                  <span>Voice</span>
-                </button>
-              </div>
-
-              {/* Recording button and status */}
-              {inputMode === 'voice' && (
-                  <div className="flex items-center gap-4">
-                    <button
-                        onClick={isRecording ? stopRecording : startRecording}
-                        className={`p-3 rounded-full ${
-                            isRecording ? 'bg-red-500 hover:bg-red-600' : 'bg-blue-600 hover:bg-blue-700'
-                        } text-white transition-colors shadow-lg hover:shadow-xl transform hover:-translate-y-0.5`}
-                        disabled={!!recordingError}
-                    >
-                      {isRecording ? (
-                          <Square className="w-5 h-5" />
-                      ) : (
-                          <Mic className="w-5 h-5" />
-                      )}
-                    </button>
-                    {isRecording && (
-                        <span className="text-sm text-red-500 animate-pulse">Recording...</span>
-                    )}
-                  </div>
-              )}
+            {/* Recording button - Moved here */}
+            <div className="flex justify-center py-4">
+              <button
+                  onClick={isRecording ? stopRecording : startRecording}
+                  className={`p-2 rounded-full ${
+                      isRecording ? 'bg-red-500 hover:bg-red-600' : 'bg-blue-600 hover:bg-blue-700'
+                  } text-white transition-colors shadow-lg hover:shadow-xl transform hover:-translate-y-0.5`}
+                  disabled={!!recordingError}
+              >
+                {isRecording ? (
+                    <Square className="w-6 h-6" />
+                ) : (
+                    <Mic className="w-6 h-6" />
+                )}
+              </button>
             </div>
 
             {/* Input area with visualizer */}
-            <div className="p-6 border-b border-gray-200">
+            <div className="p-6 border-t border-gray-200">
               <div>
               <textarea
                   value={inputText}
                   onChange={(e) => setInputText(e.target.value)}
-                  placeholder="Enter text to translate..."
+                  placeholder="Type or record your text here..."
                   dir={isRTL ? 'rtl' : 'ltr'}
                   className={`w-full h-48 resize-none bg-transparent placeholder-gray-400 focus:outline-none ${
                       isRTL ? 'text-right' : 'text-left'
@@ -391,31 +362,18 @@ const TranslationInterface = () => {
                   <div className="text-sm text-gray-400">
                     {inputText.length} characters
                   </div>
-                  <div className="flex gap-2">
-                    {showEditableTranscription && (
-                        <button
-                            onClick={() => {
-                              setInputText('');
-                              setShowEditableTranscription(false);
-                            }}
-                            className="px-8 py-2.5 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-all flex items-center gap-2 font-medium"
-                        >
-                          Clear Text
-                        </button>
-                    )}
-                    <button
-                        onClick={() => handleTranslate()}
-                        className="px-8 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all disabled:opacity-50 flex items-center gap-2 font-medium"
-                        disabled={isTranslating || !inputText.trim() || !settings.apiKey}
-                    >
-                      {isTranslating ? 'Translating...' : 'Translate'}
-                    </button>
-                  </div>
+                  <button
+                      onClick={() => handleTranslate()}
+                      className="px-8 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all disabled:opacity-50 flex items-center gap-2 font-medium"
+                      disabled={isTranslating || !inputText.trim() || !settings.apiKey}
+                  >
+                    {isTranslating ? 'Translating...' : 'Translate'}
+                  </button>
                 </div>
               </div>
             </div>
 
-            {/* Output area - Same as before */}
+            {/* Output area */}
             <div className="p-6 bg-gray-50">
               {isTranslating ? (
                   <div className="flex items-center justify-center h-32">
@@ -449,7 +407,7 @@ const TranslationInterface = () => {
             </div>
           </div>
 
-          {/* Settings Modal - Same as before */}
+          {/* Settings Modal */}
           {showSettings && (
               <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center backdrop-blur-sm">
                 <div className="bg-white rounded-xl p-6 w-full max-w-md shadow-xl">
@@ -552,16 +510,6 @@ const TranslationInterface = () => {
                 </div>
               </div>
           )}
-
-          {/* Helper text */}
-          <div className="text-center text-gray-500 text-sm mt-4">
-            {inputMode === 'text' ?
-                'Press Enter or click Translate to start translation' :
-                isRecording ?
-                    'Recording in progress... Click the red button to stop' :
-                    'Click the microphone button to start recording'
-            }
-          </div>
         </div>
       </div>
   );
