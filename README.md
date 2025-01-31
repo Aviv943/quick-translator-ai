@@ -99,7 +99,7 @@ npm start
 
 1. Access the settings through the UI
 2. Configure:
-    - OpenAI API Key
+    - OpenAI API Key (<span style="color:red">**required**</span>)
     - AI Model selection
     - Recording time limit
     - Text case preferences
